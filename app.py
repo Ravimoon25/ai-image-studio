@@ -1,5 +1,4 @@
 import streamlit as st
-import os
 
 # Page config
 st.set_page_config(
@@ -8,23 +7,55 @@ st.set_page_config(
     layout="wide"
 )
 
-# Safe API key handling
-def get_api_key():
-    # First try Streamlit secrets (for deployment)
-    try:
-        return st.secrets["STABILITY_API_KEY"]
-    except:
-        # Fallback to user input
-        return st.sidebar.text_input("Enter Stability AI API Key:", type="password")
+# Get API key from Streamlit secrets
+api_key = st.secrets["STABILITY_API_KEY"]
 
-# Title
-st.title("🎨 AI Image Studio")
-st.write("Your personal AI-powered image creation and editing suite")
+# Sidebar navigation
+st.sidebar.title("🎨 AI Image Studio")
+page = st.sidebar.selectbox(
+    "Choose a feature:",
+    ["🏠 Home", "✨ Generate", "📈 Upscale", "✏️ Edit", "🎛️ Control"]
+)
 
-# Get API key
-api_key = get_api_key()
+# Main content based on selected page
+if page == "🏠 Home":
+    st.title("🎨 AI Image Studio")
+    st.write("Your personal AI-powered image creation and editing suite")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.subheader("✨ Generate")
+        st.write("Create images from text prompts using the latest AI models")
+        
+    with col2:
+        st.subheader("📈 Upscale")
+        st.write("Enhance image resolution and quality")
+        
+    with col3:
+        st.subheader("✏️ Edit")
+        st.write("Advanced editing with masking and inpainting")
+        
+    with col4:
+        st.subheader("🎛️ Control")
+        st.write("Precise control over image generation")
 
-if api_key:
-    st.success("API Key loaded! Ready to build features.")
-else:
-    st.warning("Please enter your API key to continue.")
+elif page == "✨ Generate":
+    st.header("✨ Image Generation")
+    st.write("Generate images from text prompts")
+    # We'll build this next
+
+elif page == "📈 Upscale":
+    st.header("📈 Image Upscaling")  
+    st.write("Enhance your images")
+    # We'll build this next
+
+elif page == "✏️ Edit":
+    st.header("✏️ Image Editing")
+    st.write("Edit images with masking tools")
+    # We'll build this next
+
+elif page == "🎛️ Control":
+    st.header("🎛️ Advanced Control")
+    st.write("Precise image control")
+    # We'll build this next
