@@ -1,1 +1,8 @@
-
+streamlit
+stability-sdk
+Pillow
+requests
+streamlit-drawable-canvas
+streamlit-cropper
+numpy
+opencv-python-headless
