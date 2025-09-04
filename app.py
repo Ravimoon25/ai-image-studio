@@ -42,8 +42,8 @@ if page == "🏠 Home":
 
 elif page == "✨ Generate":
     st.header("✨ Image Generation")
-    st.write("Generate images from text prompts")
-    # We'll build this next
+    from modules.generate import show_generation_interface
+    show_generation_interface(api_key)
 
 elif page == "📈 Upscale":
     st.header("📈 Image Upscaling")  
