@@ -2,7 +2,6 @@ import streamlit as st
 import requests
 import io
 from PIL import Image
-import base64
 
 def generate_image(api_key, prompt, model="stable-image-ultra", width=1024, height=1024):
     """Generate image using Stability AI API"""
@@ -14,15 +13,16 @@ def generate_image(api_key, prompt, model="stable-image-ultra", width=1024, heig
         "Accept": "image/*"
     }
     
-    data = {
-        "prompt": prompt,
-        "width": width,
-        "height": height,
-        "output_format": "png"
+    # Use files parameter for multipart/form-data
+    files = {
+        "prompt": (None, prompt),
+        "width": (None, str(width)),
+        "height": (None, str(height)),
+        "output_format": (None, "png")
     }
     
     try:
-        response = requests.post(url, headers=headers, data=data)
+        response = requests.post(url, headers=headers, files=files)
         
         if response.status_code == 200:
             return Image.open(io.BytesIO(response.content))
