@@ -1,8 +1,7 @@
 streamlit
-stability-sdk
-Pillow
+streamlit
 requests
-streamlit-drawable-canvas
-streamlit-cropper
+Pillow
 numpy
 opencv-python-headless
+stability-sdk
