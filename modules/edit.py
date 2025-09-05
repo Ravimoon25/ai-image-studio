@@ -35,10 +35,10 @@ def remove_background(api_key, image):
         st.error(f"Request failed: {str(e)}")
         return None
 
-def search_and_replace(api_key, image, search_prompt, replace_prompt):
-    """Search and replace using Stability AI API"""
+def search_and_recolor(api_key, image, search_prompt, color_prompt):
+    """Search and recolor using Stability AI API"""
     
-    url = "https://api.stability.ai/v2beta/stable-image/edit/search-and-replace"
+    url = "https://api.stability.ai/v2beta/stable-image/edit/search-and-recolor"
     
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -52,7 +52,7 @@ def search_and_replace(api_key, image, search_prompt, replace_prompt):
     files = {
         "image": ("image.png", img_byte_arr, "image/png"),
         "search_prompt": (None, search_prompt),
-        "replace_prompt": (None, replace_prompt),
+        "color_prompt": (None, color_prompt),
         "output_format": (None, "png")
     }
     
@@ -69,10 +69,10 @@ def search_and_replace(api_key, image, search_prompt, replace_prompt):
         st.error(f"Request failed: {str(e)}")
         return None
 
-def erase_object(api_key, image, object_prompt):
-    """Erase object using Stability AI API"""
+def replace_background(api_key, image, prompt):
+    """Replace background using Stability AI API"""
     
-    url = "https://api.stability.ai/v2beta/stable-image/edit/erase"
+    url = "https://api.stability.ai/v2beta/stable-image/edit/replace-background"
     
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -85,7 +85,7 @@ def erase_object(api_key, image, object_prompt):
     
     files = {
         "image": ("image.png", img_byte_arr, "image/png"),
-        "mask": (None, object_prompt),  # AI will find the object
+        "prompt": (None, prompt),
         "output_format": (None, "png")
     }
     
@@ -103,15 +103,15 @@ def erase_object(api_key, image, object_prompt):
         return None
 
 def show_edit_interface(api_key):
-    """Show the simplified edit interface"""
+    """Show the edit interface"""
     
     st.write("✏️ **AI-powered image editing tools**")
-    st.write("Professional editing without complex masking - just describe what you want!")
+    st.write("Professional editing with automatic object detection!")
     
     # Edit mode selection
     edit_mode = st.selectbox(
         "Choose editing tool:",
-        ["🗑️ Remove Background", "🔍 Search & Replace", "⭕ Erase Object"],
+        ["🗑️ Remove Background", "🎨 Replace Background", "🌈 Search & Recolor"],
         help="Select the editing operation you want to perform"
     )
     
@@ -135,7 +135,7 @@ def show_edit_interface(api_key):
         
         if edit_mode == "🗑️ Remove Background":
             st.subheader("🗑️ Remove Background")
-            st.write("Automatically remove the background from your image.")
+            st.write("Automatically detect and remove the background from your image.")
             
             if st.button("🗑️ Remove Background", type="primary"):
                 with st.spinner("🗑️ Removing background..."):
@@ -157,35 +157,69 @@ def show_edit_interface(api_key):
                                 use_container_width=True
                             )
         
-        elif edit_mode == "🔍 Search & Replace":
-            st.subheader("🔍 Search & Replace")
-            st.write("Find objects or areas in your image and replace them with something else.")
+        elif edit_mode == "🎨 Replace Background":
+            st.subheader("🎨 Replace Background")
+            st.write("Keep the main subject and replace the background with something new.")
             
-            col_search, col_replace = st.columns(2)
+            background_prompt = st.text_area(
+                "New background description:",
+                placeholder="beautiful sunset beach, modern office space, mountain landscape, studio lighting...",
+                help="Describe what kind of background you want",
+                height=80
+            )
+            
+            if st.button("🎨 Replace Background", type="primary"):
+                if background_prompt.strip():
+                    with st.spinner("🎨 Replacing background..."):
+                        result = replace_background(api_key, original_image, background_prompt)
+                        
+                        if result:
+                            with col2:
+                                st.subheader("✨ Result")
+                                st.image(result, caption=f"New background: {background_prompt[:30]}...")
+                                
+                                # Download
+                                buf = io.BytesIO()
+                                result.save(buf, format="PNG")
+                                st.download_button(
+                                    "📥 Download Result",
+                                    data=buf.getvalue(),
+                                    file_name="new_background.png",
+                                    mime="image/png",
+                                    use_container_width=True
+                                )
+                else:
+                    st.warning("Please describe the new background you want.")
+        
+        elif edit_mode == "🌈 Search & Recolor":
+            st.subheader("🌈 Search & Recolor")
+            st.write("Find specific objects or areas and change their colors.")
+            
+            col_search, col_color = st.columns(2)
             
             with col_search:
                 search_prompt = st.text_input(
                     "What to find:",
-                    placeholder="red car, person, tree, blue shirt...",
-                    help="Describe what you want to replace"
+                    placeholder="shirt, car, hair, flowers, walls...",
+                    help="Describe what you want to recolor"
                 )
             
-            with col_replace:
-                replace_prompt = st.text_input(
-                    "Replace with:",
-                    placeholder="yellow car, flowers, building...",
-                    help="Describe what should replace it"
+            with col_color:
+                color_prompt = st.text_input(
+                    "New color:",
+                    placeholder="bright red, deep blue, golden yellow, pink...",
+                    help="Describe the new color"
                 )
             
-            if st.button("🔍 Search & Replace", type="primary"):
-                if search_prompt.strip() and replace_prompt.strip():
-                    with st.spinner("🔍 Searching and replacing..."):
-                        result = search_and_replace(api_key, original_image, search_prompt, replace_prompt)
+            if st.button("🌈 Search & Recolor", type="primary"):
+                if search_prompt.strip() and color_prompt.strip():
+                    with st.spinner("🌈 Recoloring..."):
+                        result = search_and_recolor(api_key, original_image, search_prompt, color_prompt)
                         
                         if result:
                             with col2:
                                 st.subheader("✨ Result")
-                                st.image(result, caption=f"Replaced '{search_prompt}' with '{replace_prompt}'")
+                                st.image(result, caption=f"Recolored '{search_prompt}' to '{color_prompt}'")
                                 
                                 # Download
                                 buf = io.BytesIO()
@@ -193,42 +227,18 @@ def show_edit_interface(api_key):
                                 st.download_button(
                                     "📥 Download Result",
                                     data=buf.getvalue(),
-                                    file_name="search_replace_result.png",
+                                    file_name="recolored_image.png",
                                     mime="image/png",
                                     use_container_width=True
                                 )
                 else:
-                    st.warning("Please fill in both search and replace prompts.")
+                    st.warning("Please fill in both search and color prompts.")
         
-        elif edit_mode == "⭕ Erase Object":
-            st.subheader("⭕ Erase Object")
-            st.write("Remove specific objects from your image by describing them.")
-            
-            object_prompt = st.text_input(
-                "What to erase:",
-                placeholder="person in background, watermark, unwanted object...",
-                help="Describe what you want to remove from the image"
-            )
-            
-            if st.button("⭕ Erase Object", type="primary"):
-                if object_prompt.strip():
-                    with st.spinner("⭕ Erasing object..."):
-                        result = erase_object(api_key, original_image, object_prompt)
-                        
-                        if result:
-                            with col2:
-                                st.subheader("✨ Result")
-                                st.image(result, caption=f"Erased: {object_prompt}")
-                                
-                                # Download
-                                buf = io.BytesIO()
-                                result.save(buf, format="PNG")
-                                st.download_button(
-                                    "📥 Download Result",
-                                    data=buf.getvalue(),
-                                    file_name="erased_object.png",
-                                    mime="image/png",
-                                    use_container_width=True
-                                )
-                else:
-                    st.warning("Please describe what you want to erase.")
+        # Tips section
+        with st.expander("💡 Editing Tips"):
+            st.write("**For best results:**")
+            st.write("- Use clear, simple descriptions")
+            st.write("- 'Remove Background' works best with clear subjects")
+            st.write("- 'Replace Background' keeps the main subject intact") 
+            st.write("- 'Search & Recolor' works well for clothing, objects, and large areas")
+            st.write("- Try different phrasings if the first attempt doesn't work perfectly")
