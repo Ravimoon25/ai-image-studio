@@ -1,10 +1,8 @@
 import streamlit as st
 import requests
 import io
-from PIL import Image
+from PIL import Image, ImageDraw
 import numpy as np
-import base64
-from streamlit.components.v1 import html
 
 def remove_background(api_key, image):
     """Remove background using Stability AI API"""
@@ -104,268 +102,43 @@ def outpaint_image(api_key, image, prompt, direction="up", pixels=64):
         st.error(f"Request failed: {str(e)}")
         return None
 
-def image_to_base64(image):
-    """Convert PIL image to base64 string"""
-    buffered = io.BytesIO()
-    image.save(buffered, format="PNG")
-    img_str = base64.b64encode(buffered.getvalue()).decode()
-    return f"data:image/png;base64,{img_str}"
+def create_coordinate_mask(image, coords_list, brush_size=30):
+    """Create mask from coordinate points"""
+    mask = Image.new('L', image.size, 0)  # Black background
+    draw = ImageDraw.Draw(mask)
+    
+    for coords in coords_list:
+        x, y = coords
+        # Draw a circle at each coordinate
+        radius = brush_size // 2
+        draw.ellipse([x - radius, y - radius, x + radius, y + radius], fill=255)
+    
+    return mask
 
-def create_drawing_canvas(image, canvas_id="drawingCanvas"):
-    """Create HTML5 Canvas for free drawing"""
+def create_area_mask(image, x1_pct, y1_pct, x2_pct, y2_pct, shape="rectangle"):
+    """Create mask from area percentages"""
+    width, height = image.size
     
-    # Convert image to base64
-    img_b64 = image_to_base64(image)
+    x1 = int(width * x1_pct / 100)
+    y1 = int(height * y1_pct / 100) 
+    x2 = int(width * x2_pct / 100)
+    y2 = int(height * y2_pct / 100)
     
-    # Scale image if too large
-    max_size = 600
-    if max(image.size) > max_size:
-        ratio = max_size / max(image.size)
-        canvas_width = int(image.size[0] * ratio)
-        canvas_height = int(image.size[1] * ratio)
-    else:
-        canvas_width, canvas_height = image.size
+    mask = Image.new('L', image.size, 0)
+    draw = ImageDraw.Draw(mask)
     
-    html_code = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <style>
-            #canvasContainer {{
-                position: relative;
-                display: inline-block;
-                border: 2px solid #ddd;
-                border-radius: 8px;
-                background: #f9f9f9;
-            }}
-            #backgroundCanvas, #drawingCanvas {{
-                position: absolute;
-                top: 0;
-                left: 0;
-                cursor: crosshair;
-            }}
-            #backgroundCanvas {{
-                z-index: 1;
-            }}
-            #drawingCanvas {{
-                z-index: 2;
-            }}
-            .controls {{
-                margin: 10px 0;
-                padding: 10px;
-                background: #f0f2f6;
-                border-radius: 5px;
-            }}
-            button {{
-                margin: 5px;
-                padding: 8px 16px;
-                border: none;
-                border-radius: 4px;
-                cursor: pointer;
-                font-size: 14px;
-            }}
-            .primary-btn {{
-                background: #ff4b4b;
-                color: white;
-            }}
-            .secondary-btn {{
-                background: #f0f2f6;
-                color: #333;
-                border: 1px solid #ddd;
-            }}
-            input[type="range"] {{
-                width: 100px;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="controls">
-            <label>🖌️ Brush Size: </label>
-            <input type="range" id="brushSize" min="5" max="50" value="20" oninput="updateBrushSize()">
-            <span id="brushSizeValue">20</span>px
-            
-            <button class="secondary-btn" onclick="clearCanvas()">🗑️ Clear</button>
-            <button class="secondary-btn" onclick="undoLast()">↶ Undo</button>
-            <button class="primary-btn" onclick="downloadMask()">💾 Generate Mask</button>
-        </div>
-        
-        <div id="canvasContainer">
-            <canvas id="backgroundCanvas" width="{canvas_width}" height="{canvas_height}"></canvas>
-            <canvas id="drawingCanvas" width="{canvas_width}" height="{canvas_height}"></canvas>
-        </div>
-        
-        <div style="margin-top: 10px;">
-            <p>🎯 <strong>Instructions:</strong> Paint over the areas you want to edit. The mask will be automatically generated.</p>
-        </div>
-
-        <script>
-            let isDrawing = false;
-            let brushSize = 20;
-            let paths = [];
-            let currentPath = [];
-            
-            const backgroundCanvas = document.getElementById('backgroundCanvas');
-            const drawingCanvas = document.getElementById('drawingCanvas');
-            const backgroundCtx = backgroundCanvas.getContext('2d');
-            const drawingCtx = drawingCanvas.getContext('2d');
-            
-            // Load background image
-            const img = new Image();
-            img.onload = function() {{
-                backgroundCtx.drawImage(img, 0, 0, {canvas_width}, {canvas_height});
-            }};
-            img.src = '{img_b64}';
-            
-            // Set up drawing context
-            drawingCtx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
-            drawingCtx.lineWidth = brushSize;
-            drawingCtx.lineCap = 'round';
-            drawingCtx.lineJoin = 'round';
-            
-            // Mouse events
-            drawingCanvas.addEventListener('mousedown', startDrawing);
-            drawingCanvas.addEventListener('mousemove', draw);
-            drawingCanvas.addEventListener('mouseup', stopDrawing);
-            drawingCanvas.addEventListener('mouseout', stopDrawing);
-            
-            // Touch events for mobile
-            drawingCanvas.addEventListener('touchstart', function(e) {{
-                e.preventDefault();
-                const touch = e.touches[0];
-                const rect = drawingCanvas.getBoundingClientRect();
-                const x = touch.clientX - rect.left;
-                const y = touch.clientY - rect.top;
-                startDrawing({{offsetX: x, offsetY: y}});
-            }});
-            
-            drawingCanvas.addEventListener('touchmove', function(e) {{
-                e.preventDefault();
-                const touch = e.touches[0];
-                const rect = drawingCanvas.getBoundingClientRect();
-                const x = touch.clientX - rect.left;
-                const y = touch.clientY - rect.top;
-                draw({{offsetX: x, offsetY: y}});
-            }});
-            
-            drawingCanvas.addEventListener('touchend', function(e) {{
-                e.preventDefault();
-                stopDrawing();
-            }});
-            
-            function startDrawing(e) {{
-                isDrawing = true;
-                currentPath = [];
-                currentPath.push({{x: e.offsetX, y: e.offsetY}});
-                
-                drawingCtx.beginPath();
-                drawingCtx.moveTo(e.offsetX, e.offsetY);
-            }}
-            
-            function draw(e) {{
-                if (!isDrawing) return;
-                
-                currentPath.push({{x: e.offsetX, y: e.offsetY}});
-                
-                drawingCtx.lineTo(e.offsetX, e.offsetY);
-                drawingCtx.stroke();
-            }}
-            
-            function stopDrawing() {{
-                if (isDrawing) {{
-                    isDrawing = false;
-                    paths.push([...currentPath]);
-                }}
-            }}
-            
-            function updateBrushSize() {{
-                brushSize = document.getElementById('brushSize').value;
-                document.getElementById('brushSizeValue').textContent = brushSize;
-                drawingCtx.lineWidth = brushSize;
-            }}
-            
-            function clearCanvas() {{
-                drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
-                paths = [];
-            }}
-            
-            function undoLast() {{
-                if (paths.length > 0) {{
-                    paths.pop();
-                    redrawCanvas();
-                }}
-            }}
-            
-            function redrawCanvas() {{
-                drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
-                
-                for (let path of paths) {{
-                    if (path.length > 0) {{
-                        drawingCtx.beginPath();
-                        drawingCtx.moveTo(path[0].x, path[0].y);
-                        
-                        for (let i = 1; i < path.length; i++) {{
-                            drawingCtx.lineTo(path[i].x, path[i].y);
-                        }}
-                        drawingCtx.stroke();
-                    }}
-                }}
-            }}
-            
-            function downloadMask() {{
-                // Create mask canvas (white drawing on black background)
-                const maskCanvas = document.createElement('canvas');
-                maskCanvas.width = {canvas_width};
-                maskCanvas.height = {canvas_height};
-                const maskCtx = maskCanvas.getContext('2d');
-                
-                // Black background
-                maskCtx.fillStyle = 'black';
-                maskCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
-                
-                // White strokes
-                maskCtx.strokeStyle = 'white';
-                maskCtx.lineWidth = brushSize;
-                maskCtx.lineCap = 'round';
-                maskCtx.lineJoin = 'round';
-                
-                // Draw all paths
-                for (let path of paths) {{
-                    if (path.length > 0) {{
-                        maskCtx.beginPath();
-                        maskCtx.moveTo(path[0].x, path[0].y);
-                        
-                        for (let i = 1; i < path.length; i++) {{
-                            maskCtx.lineTo(path[i].x, path[i].y);
-                        }}
-                        maskCtx.stroke();
-                    }}
-                }}
-                
-                // Convert to base64 and send to Streamlit
-                const maskDataUrl = maskCanvas.toDataURL('image/png');
-                
-                // Send mask data to parent window
-                window.parent.postMessage({{
-                    type: 'mask_data',
-                    data: maskDataUrl,
-                    original_size: [{image.size[0]}, {image.size[1]}],
-                    canvas_size: [{canvas_width}, {canvas_height}]
-                }}, '*');
-                
-                alert('Mask generated! You can now apply inpainting.');
-            }}
-        </script>
-    </body>
-    </html>
-    """
+    if shape == "rectangle":
+        draw.rectangle([x1, y1, x2, y2], fill=255)
+    elif shape == "ellipse":
+        draw.ellipse([x1, y1, x2, y2], fill=255)
     
-    return html_code, canvas_width, canvas_height
+    return mask
 
 def show_edit_interface(api_key):
-    """Show the custom interactive edit interface"""
+    """Show the working edit interface"""
     
-    st.write("✏️ **Professional Interactive Image Editing**")
-    st.write("🖌️ **Draw freely anywhere on your image!**")
+    st.write("✏️ **Reliable Image Editing Suite**")
+    st.write("🎯 **Multiple masking options that actually work!**")
     
     # Image upload
     uploaded_file = st.file_uploader(
@@ -377,16 +150,13 @@ def show_edit_interface(api_key):
     if uploaded_file is not None:
         original_image = Image.open(uploaded_file)
         
-        # Store in session state
-        if 'editing_image' not in st.session_state:
-            st.session_state.editing_image = original_image
-        
         # Main editing tools
         edit_tool = st.selectbox(
             "Choose editing tool:",
             [
                 "🗑️ Remove Background",
-                "🎨 Free Drawing Inpainting", 
+                "🎨 Area-Based Inpainting",
+                "📐 Coordinate Inpainting", 
                 "🖼️ Outpainting"
             ],
             help="Select the editing operation"
@@ -396,8 +166,10 @@ def show_edit_interface(api_key):
         
         if edit_tool == "🗑️ Remove Background":
             show_background_removal(api_key, original_image)
-        elif edit_tool == "🎨 Free Drawing Inpainting":
-            show_free_drawing_inpainting(api_key, original_image)
+        elif edit_tool == "🎨 Area-Based Inpainting":
+            show_area_inpainting(api_key, original_image)
+        elif edit_tool == "📐 Coordinate Inpainting":
+            show_coordinate_inpainting(api_key, original_image)
         elif edit_tool == "🖼️ Outpainting":
             show_outpainting(api_key, original_image)
 
@@ -417,76 +189,153 @@ def show_background_removal(api_key, image):
             if result:
                 show_result(result, "Background removed!", "no_background.png", col2)
 
-def show_free_drawing_inpainting(api_key, image):
-    """Show free drawing inpainting interface"""
-    st.subheader("🎨 Free Drawing Inpainting")
-    st.write("🖌️ **Draw exactly where you want to edit - complete freedom!**")
+def show_area_inpainting(api_key, image):
+    """Show area-based inpainting with sliders"""
+    st.subheader("🎨 Area-Based Inpainting")
+    st.write("📐 **Define the exact area you want to edit using sliders**")
     
-    col1, col2 = st.columns([2, 1])
+    col1, col2 = st.columns(2)
     
     with col1:
-        st.write("**🎨 Interactive Drawing Canvas**")
-        
-        # Create the HTML5 canvas
-        html_code, canvas_width, canvas_height = create_drawing_canvas(image)
-        
-        # Display the interactive canvas
-        components_html = html(html_code, height=canvas_height + 150, scrolling=False)
-    
-    with col2:
         st.write("**📷 Original Image**")
-        st.image(image, caption=f"Size: {image.size[0]}x{image.size[1]}", width=300)
+        st.image(image, caption=f"Size: {image.size[0]}x{image.size[1]}")
+    
+    # Area definition
+    st.write("**📐 Define Area to Edit (as % of image):**")
+    
+    col_x, col_y = st.columns(2)
+    
+    with col_x:
+        x1_pct = st.slider("Left edge %", 0, 100, 20, key="area_x1")
+        x2_pct = st.slider("Right edge %", 0, 100, 80, key="area_x2")
         
-        st.markdown("---")
+    with col_y:
+        y1_pct = st.slider("Top edge %", 0, 100, 20, key="area_y1")
+        y2_pct = st.slider("Bottom edge %", 0, 100, 80, key="area_y2")
+    
+    # Shape selection
+    shape = st.selectbox("Mask shape:", ["rectangle", "ellipse"], key="area_shape")
+    
+    # Create and show preview
+    if st.button("🔍 Preview Mask", key="preview_area_mask"):
+        mask = create_area_mask(image, x1_pct, y1_pct, x2_pct, y2_pct, shape)
         
-        # Prompt for inpainting
-        st.write("**📝 Inpainting Prompt**")
-        prompt = st.text_area(
-            "What should appear in the drawn areas:",
-            placeholder="beautiful flowers, blue sky, person smiling, modern building...",
-            help="Describe what you want to generate in the areas you drew",
-            height=100
-        )
+        # Show mask preview
+        mask_preview = Image.new('RGBA', image.size, (0, 0, 0, 0))
+        mask_preview.paste((255, 0, 0, 128), mask=mask)
+        preview_combined = Image.alpha_composite(image.convert('RGBA'), mask_preview)
         
-        # File uploader for mask (alternative method)
-        st.write("**🎭 Or Upload Mask Manually**")
-        uploaded_mask = st.file_uploader(
-            "Upload a mask image (optional):",
-            type=['png', 'jpg', 'jpeg'],
-            help="White areas = edit, Black areas = keep original"
-        )
+        st.write("**🎯 Preview - Red area will be edited:**")
+        st.image(preview_combined, width=400)
         
-        # Apply inpainting button
-        if st.button("🎨 Apply Inpainting", type="primary", use_container_width=True):
-            if prompt.strip():
-                if uploaded_mask is not None:
-                    # Use uploaded mask
-                    mask_image = Image.open(uploaded_mask).convert('L')
-                    mask_resized = mask_image.resize(image.size)
-                    
-                    with st.spinner("🎨 Applying inpainting with uploaded mask..."):
-                        result = inpaint_image(api_key, image, mask_resized, prompt)
-                        if result:
-                            st.success("✅ Inpainting completed!")
-                            st.image(result, caption="Inpainting result")
-                            
-                            # Download button
-                            buf = io.BytesIO()
-                            result.save(buf, format="PNG")
-                            st.download_button(
-                                "📥 Download Result",
-                                data=buf.getvalue(),
-                                file_name="inpainted_result.png",
-                                mime="image/png"
-                            )
-                else:
-                    st.info("💡 Use the drawing canvas on the left to create a mask, then click 'Generate Mask' in the canvas, then try this button again.")
-            else:
-                st.warning("Please enter a prompt describing what should appear in the drawn areas.")
+        # Store mask in session state
+        st.session_state.current_mask = mask
+        st.success("✅ Mask created! Now enter your prompt and apply inpainting.")
+    
+    # Prompt
+    prompt = st.text_area(
+        "What should appear in the selected area:",
+        placeholder="beautiful flowers, blue sky, modern building...",
+        help="Describe what you want to generate in the selected area",
+        key="area_prompt"
+    )
+    
+    # Apply inpainting
+    if st.button("🎨 Apply Area Inpainting", type="primary", key="apply_area_inpainting"):
+        if prompt.strip() and 'current_mask' in st.session_state:
+            with st.spinner("🎨 Applying inpainting..."):
+                result = inpaint_image(api_key, image, st.session_state.current_mask, prompt)
+                if result:
+                    show_result(result, f"Area inpainted: {prompt[:30]}...", "area_inpainted.png", col2)
+        elif not prompt.strip():
+            st.warning("Please enter a prompt.")
+        else:
+            st.warning("Please create a mask first by clicking 'Preview Mask'.")
+
+def show_coordinate_inpainting(api_key, image):
+    """Show coordinate-based inpainting"""
+    st.subheader("📐 Coordinate Inpainting")
+    st.write("🎯 **Click to add points, then paint around them**")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.write("**📷 Original Image**")
+        st.image(image, caption=f"Size: {image.size[0]}x{image.size[1]}")
+    
+    # Initialize coordinates in session state
+    if 'mask_coordinates' not in st.session_state:
+        st.session_state.mask_coordinates = []
+    
+    # Coordinate input
+    st.write("**📍 Add Points to Paint Around:**")
+    
+    col_coord, col_brush = st.columns(2)
+    
+    with col_coord:
+        # Manual coordinate input
+        x_coord = st.number_input("X coordinate (pixels):", 0, image.size[0], image.size[0]//2, key="x_coord")
+        y_coord = st.number_input("Y coordinate (pixels):", 0, image.size[1], image.size[1]//2, key="y_coord")
+        
+        if st.button("➕ Add Point", key="add_coord"):
+            st.session_state.mask_coordinates.append((x_coord, y_coord))
+            st.success(f"Added point at ({x_coord}, {y_coord})")
+    
+    with col_brush:
+        brush_size = st.slider("Brush size (pixels):", 10, 100, 40, key="coord_brush")
+        
+        if st.button("🗑️ Clear All Points", key="clear_coords"):
+            st.session_state.mask_coordinates = []
+            st.success("Cleared all points")
+    
+    # Show current points
+    if st.session_state.mask_coordinates:
+        st.write(f"**Current points:** {len(st.session_state.mask_coordinates)} points added")
+        for i, (x, y) in enumerate(st.session_state.mask_coordinates):
+            st.write(f"Point {i+1}: ({x}, {y})")
+    
+    # Create mask preview
+    if st.button("🔍 Preview Coordinate Mask", key="preview_coord_mask"):
+        if st.session_state.mask_coordinates:
+            mask = create_coordinate_mask(image, st.session_state.mask_coordinates, brush_size)
+            
+            # Show mask preview
+            mask_preview = Image.new('RGBA', image.size, (0, 0, 0, 0))
+            mask_preview.paste((255, 0, 0, 128), mask=mask)
+            preview_combined = Image.alpha_composite(image.convert('RGBA'), mask_preview)
+            
+            st.write("**🎯 Preview - Red areas will be edited:**")
+            st.image(preview_combined, width=400)
+            
+            # Store mask
+            st.session_state.current_coord_mask = mask
+            st.success("✅ Coordinate mask created!")
+        else:
+            st.warning("Please add some points first.")
+    
+    # Prompt
+    prompt = st.text_area(
+        "What should appear at the marked points:",
+        placeholder="flowers, people, objects, decorations...",
+        help="Describe what you want to generate at the marked coordinates",
+        key="coord_prompt"
+    )
+    
+    # Apply inpainting
+    if st.button("🎨 Apply Coordinate Inpainting", type="primary", key="apply_coord_inpainting"):
+        if prompt.strip() and 'current_coord_mask' in st.session_state:
+            with st.spinner("🎨 Applying coordinate inpainting..."):
+                result = inpaint_image(api_key, image, st.session_state.current_coord_mask, prompt)
+                if result:
+                    show_result(result, f"Coordinate inpainted: {prompt[:30]}...", "coord_inpainted.png", col2)
+        elif not prompt.strip():
+            st.warning("Please enter a prompt.")
+        else:
+            st.warning("Please create a coordinate mask first.")
 
 def show_outpainting(api_key, image):
     """Show outpainting interface"""
-    st.subheader("🖼️ Outpainting - Extend Image")
+    st.subheader("🖼️ Outpainting")
     
     col1, col2 = st.columns(2)
     
@@ -498,41 +347,25 @@ def show_outpainting(api_key, image):
     
     with col_dir:
         direction = st.selectbox(
-            "Extension direction:",
+            "Direction:",
             ["up", "down", "left", "right", "all"],
-            format_func=lambda x: {
-                "up": "⬆️ Upward",
-                "down": "⬇️ Downward",
-                "left": "⬅️ Leftward", 
-                "right": "➡️ Rightward",
-                "all": "🔄 All directions"
-            }[x]
+            format_func=lambda x: f"⬆️⬇️⬅️➡️🔄"[["up", "down", "left", "right", "all"].index(x)] + f" {x.title()}"
         )
     
     with col_size:
-        pixels = st.selectbox(
-            "Extension size:",
-            [32, 64, 96, 128],
-            format_func=lambda x: f"{x} pixels",
-            index=1
-        )
+        pixels = st.selectbox("Extension:", [32, 64, 96, 128], index=1)
     
     prompt = st.text_area(
-        "What should appear in the extended area:",
-        placeholder="continue the landscape, more ocean waves, sky with clouds...",
-        help="Describe what should be generated in the new expanded areas"
+        "Extension description:",
+        placeholder="continue the landscape, more sky, ocean waves...",
+        height=60
     )
     
-    if st.button("🖼️ Extend Image", type="primary", use_container_width=True):
-        if prompt.strip():
-            with st.spinner("🖼️ Extending image..."):
-                result = outpaint_image(api_key, image, prompt, direction, pixels)
-                if result:
-                    original_size = f"{image.size[0]}×{image.size[1]}"
-                    new_size = f"{result.size[0]}×{result.size[1]}"
-                    show_result(result, f"Extended from {original_size} to {new_size}", "outpainted.png", col2)
-        else:
-            st.warning("Please describe what should appear in the extended area.")
+    if st.button("🖼️ Extend Image", type="primary") and prompt.strip():
+        with st.spinner("🖼️ Extending..."):
+            result = outpaint_image(api_key, image, prompt, direction, pixels)
+            if result:
+                show_result(result, f"Extended {direction}", "outpainted.png", col2)
 
 def show_result(result_image, caption, filename, column):
     """Helper function to display results"""
@@ -543,7 +376,7 @@ def show_result(result_image, caption, filename, column):
         buf = io.BytesIO()
         result_image.save(buf, format="PNG")
         st.download_button(
-            "📥 Download Result",
+            "📥 Download",
             data=buf.getvalue(),
             file_name=filename,
             mime="image/png",
