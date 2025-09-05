@@ -7,8 +7,31 @@ st.set_page_config(
     layout="wide"
 )
 
-# Get API key from Streamlit secrets
-api_key = st.secrets["STABILITY_API_KEY"]
+# Safe API key handling with better error handling
+try:
+    api_key = st.secrets["STABILITY_API_KEY"]
+    if not api_key:
+        raise KeyError("API key is empty")
+except KeyError:
+    st.error("⚠️ API Key not found in Streamlit secrets!")
+    st.write("**To fix this:**")
+    st.write("1. Go to your app → Click 'Manage app' (bottom right)")
+    st.write("2. Go to 'Secrets' tab")
+    st.write("3. Add: `STABILITY_API_KEY = \"your-api-key-here\"`")
+    st.write("4. Save and the app will restart")
+    st.stop()
+except Exception as e:
+    st.error(f"Error loading API key: {str(e)}")
+    st.stop()
+
+# Rest of your app code stays the same...
+# Sidebar navigation
+st.sidebar.title("🎨 AI Image Studio")
+page = st.sidebar.selectbox(
+    "Choose a feature:",
+    ["🏠 Home", "✨ Generate", "📈 Upscale", "✏️ Edit", "🎛️ Control"]
+)
+
 
 # Sidebar navigation
 st.sidebar.title("🎨 AI Image Studio")
