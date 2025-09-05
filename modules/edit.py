@@ -3,6 +3,7 @@ import requests
 import io
 from PIL import Image, ImageDraw
 import numpy as np
+from streamlit_drawable_canvas import st_canvas
 
 def remove_background(api_key, image):
     """Remove background using Stability AI API"""
@@ -69,7 +70,7 @@ def inpaint_image(api_key, image, mask, prompt):
         st.error(f"Request failed: {str(e)}")
         return None
 
-def outpaint_image(api_key, image, prompt, direction="up", pixels=32):
+def outpaint_image(api_key, image, prompt, direction="up", pixels=64):
     """Outpaint image using Stability AI API"""
     url = "https://api.stability.ai/v2beta/stable-image/edit/outpaint"
     
@@ -103,49 +104,11 @@ def outpaint_image(api_key, image, prompt, direction="up", pixels=32):
         st.error(f"Request failed: {str(e)}")
         return None
 
-def create_simple_mask(image, mask_type, region=None):
-    """Create simple masks for inpainting"""
-    width, height = image.size
-    mask = Image.new('L', (width, height), 0)  # Black background
-    draw = ImageDraw.Draw(mask)
-    
-    if mask_type == "center_circle":
-        # Circle in center for adding objects
-        center_x, center_y = width // 2, height // 2
-        radius = min(width, height) // 6
-        draw.ellipse([center_x - radius, center_y - radius, 
-                     center_x + radius, center_y + radius], fill=255)
-    
-    elif mask_type == "center_square":
-        # Square in center
-        size = min(width, height) // 4
-        x1 = (width - size) // 2
-        y1 = (height - size) // 2
-        draw.rectangle([x1, y1, x1 + size, y1 + size], fill=255)
-    
-    elif mask_type == "top_half":
-        # Top half of image
-        draw.rectangle([0, 0, width, height // 2], fill=255)
-    
-    elif mask_type == "bottom_half":
-        # Bottom half of image
-        draw.rectangle([0, height // 2, width, height], fill=255)
-    
-    elif mask_type == "left_side":
-        # Left third
-        draw.rectangle([0, 0, width // 3, height], fill=255)
-    
-    elif mask_type == "right_side":
-        # Right third
-        draw.rectangle([2 * width // 3, 0, width, height], fill=255)
-    
-    return mask
-
 def show_edit_interface(api_key):
-    """Show the inpainting/outpainting focused interface"""
+    """Show the interactive edit interface"""
     
-    st.write("✏️ **Professional Inpainting & Outpainting Tools**")
-    st.write("High-quality editing with precise control!")
+    st.write("✏️ **Interactive AI Image Editing**")
+    st.write("🖌️ **Draw exactly where you want to edit!**")
     
     # Image upload
     uploaded_file = st.file_uploader(
@@ -157,19 +120,12 @@ def show_edit_interface(api_key):
     if uploaded_file is not None:
         original_image = Image.open(uploaded_file)
         
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.write("**📷 Original Image**")
-            st.image(original_image, caption=f"Size: {original_image.size[0]}x{original_image.size[1]}")
-        
         # Main editing tools
         edit_tool = st.selectbox(
             "Choose editing tool:",
             [
                 "🗑️ Remove Background",
-                "🎨 Inpainting - Replace Areas", 
-                "➕ Inpainting - Add Objects",
+                "🎨 Interactive Inpainting",
                 "🖼️ Outpainting - Extend Image"
             ],
             help="Select the editing operation"
@@ -178,168 +134,220 @@ def show_edit_interface(api_key):
         st.markdown("---")
         
         if edit_tool == "🗑️ Remove Background":
-            st.subheader("🗑️ Remove Background")
-            st.write("✅ **Clean background removal**")
-            
-            if st.button("🗑️ Remove Background", type="primary", use_container_width=True):
-                with st.spinner("🗑️ Removing background..."):
-                    result = remove_background(api_key, original_image)
-                    if result:
-                        show_result(result, "Background removed!", "no_background.png", col2)
-        
-        elif edit_tool == "🎨 Inpainting - Replace Areas":
-            st.subheader("🎨 Inpainting - Replace Areas")
-            st.write("✅ **Replace specific parts of your image**")
-            
-            # Mask selection for replacement
-            mask_area = st.selectbox(
-                "Select area to replace:",
-                [
-                    "center_circle", "center_square", "top_half", 
-                    "bottom_half", "left_side", "right_side"
-                ],
-                format_func=lambda x: {
-                    "center_circle": "🔵 Center Circle",
-                    "center_square": "⬜ Center Square", 
-                    "top_half": "⬆️ Top Half",
-                    "bottom_half": "⬇️ Bottom Half",
-                    "left_side": "⬅️ Left Side",
-                    "right_side": "➡️ Right Side"
-                }[x]
-            )
-            
-            replacement_prompt = st.text_area(
-                "What to put in the selected area:",
-                placeholder="beautiful flowers, modern building, blue sky, ocean waves...",
-                help="Describe what should replace the selected area"
-            )
-            
-            if st.button("🎨 Replace Area", type="primary", use_container_width=True):
-                if replacement_prompt.strip():
-                    mask = create_simple_mask(original_image, mask_area)
-                    
-                    # Show mask preview
-                    st.write("**Mask Preview:**")
-                    mask_preview = Image.new('RGBA', original_image.size, (0, 0, 0, 0))
-                    mask_preview.paste((255, 0, 0, 128), mask=mask)
-                    preview_combined = Image.alpha_composite(
-                        original_image.convert('RGBA'),
-                        mask_preview
-                    )
-                    st.image(preview_combined, caption="Red area will be replaced", width=300)
-                    
-                    with st.spinner("🎨 Replacing area..."):
-                        result = inpaint_image(api_key, original_image, mask, replacement_prompt)
-                        if result:
-                            show_result(result, f"Replaced area with: {replacement_prompt[:30]}...", "inpainted.png", col2)
-                else:
-                    st.warning("Please describe what to put in the selected area.")
-        
-        elif edit_tool == "➕ Inpainting - Add Objects":
-            st.subheader("➕ Inpainting - Add Objects")
-            st.write("✅ **Add new objects to your image**")
-            
-            add_location = st.selectbox(
-                "Where to add object:",
-                ["center_circle", "center_square", "left_side", "right_side"],
-                format_func=lambda x: {
-                    "center_circle": "🔵 Center (Circle)",
-                    "center_square": "⬜ Center (Square)",
-                    "left_side": "⬅️ Left Side", 
-                    "right_side": "➡️ Right Side"
-                }[x]
-            )
-            
-            # Object categories
-            object_category = st.selectbox(
-                "Object category:",
-                ["👥 People", "🐕 Animals", "🚗 Vehicles", "🌸 Nature", "🏠 Buildings", "📱 Objects"],
-                help="Choose the type of object to add"
-            )
-            
-            object_prompt = st.text_area(
-                "Describe the object to add:",
-                placeholder="a person wearing a red jacket, a golden retriever, a vintage car, blooming roses...",
-                help="Be specific about the object you want to add"
-            )
-            
-            if st.button("➕ Add Object", type="primary", use_container_width=True):
-                if object_prompt.strip():
-                    mask = create_simple_mask(original_image, add_location)
-                    
-                    # Show where object will be added
-                    st.write("**Addition Preview:**")
-                    mask_preview = Image.new('RGBA', original_image.size, (0, 0, 0, 0))
-                    mask_preview.paste((0, 255, 0, 128), mask=mask)
-                    preview_combined = Image.alpha_composite(
-                        original_image.convert('RGBA'),
-                        mask_preview
-                    )
-                    st.image(preview_combined, caption="Green area = where object will be added", width=300)
-                    
-                    with st.spinner("➕ Adding object..."):
-                        result = inpaint_image(api_key, original_image, mask, object_prompt)
-                        if result:
-                            show_result(result, f"Added: {object_prompt[:30]}...", "added_object.png", col2)
-                else:
-                    st.warning("Please describe the object you want to add.")
-        
+            show_background_removal(api_key, original_image)
+        elif edit_tool == "🎨 Interactive Inpainting":
+            show_interactive_inpainting(api_key, original_image)
         elif edit_tool == "🖼️ Outpainting - Extend Image":
-            st.subheader("🖼️ Outpainting - Extend Image")
-            st.write("✅ **Expand your image in any direction**")
-            
-            col_dir, col_size = st.columns(2)
-            
-            with col_dir:
-                direction = st.selectbox(
-                    "Extend direction:",
-                    ["up", "down", "left", "right", "all"],
-                    format_func=lambda x: {
-                        "up": "⬆️ Upward",
-                        "down": "⬇️ Downward", 
-                        "left": "⬅️ Leftward",
-                        "right": "➡️ Rightward",
-                        "all": "🔄 All Directions"
-                    }[x]
-                )
-            
-            with col_size:
-                extension_size = st.selectbox(
-                    "Extension size:",
-                    [32, 64, 96, 128],
-                    format_func=lambda x: f"{x} pixels",
-                    index=1  # Default to 64
-                )
-            
-            extension_prompt = st.text_area(
-                "What should appear in the extended area:",
-                placeholder="continue the landscape, more ocean, forest continuation, sky with clouds...",
-                help="Describe what should be generated in the new expanded areas"
-            )
-            
-            if st.button("🖼️ Extend Image", type="primary", use_container_width=True):
-                if extension_prompt.strip():
-                    with st.spinner("🖼️ Extending image..."):
-                        result = outpaint_image(api_key, original_image, extension_prompt, direction, extension_size)
-                        if result:
-                            # Show size comparison
-                            original_size = f"{original_image.size[0]}×{original_image.size[1]}"
-                            new_size = f"{result.size[0]}×{result.size[1]}"
-                            show_result(result, f"Extended from {original_size} to {new_size}", "outpainted.png", col2)
-                else:
-                    st.warning("Please describe what should appear in the extended area.")
+            show_outpainting(api_key, original_image)
+
+def show_background_removal(api_key, image):
+    """Show background removal interface"""
+    st.subheader("🗑️ Remove Background")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.write("**📷 Original Image**")
+        st.image(image, caption=f"Size: {image.size[0]}x{image.size[1]}")
+    
+    if st.button("🗑️ Remove Background", type="primary", use_container_width=True):
+        with st.spinner("🗑️ Removing background..."):
+            result = remove_background(api_key, image)
+            if result:
+                show_result(result, "Background removed!", "no_background.png", col2)
+
+def show_interactive_inpainting(api_key, image):
+    """Show interactive inpainting with drawable canvas"""
+    st.subheader("🎨 Interactive Inpainting")
+    st.write("🖌️ **Paint over the areas you want to edit, then describe what should appear there**")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.write("**📷 Original Image**")
+        st.image(image, caption=f"Size: {image.size[0]}x{image.size[1]}")
+    
+    # Resize image for canvas if too large
+    max_canvas_size = 600
+    if image.size[0] > max_canvas_size or image.size[1] > max_canvas_size:
+        ratio = min(max_canvas_size / image.size[0], max_canvas_size / image.size[1])
+        canvas_width = int(image.size[0] * ratio)
+        canvas_height = int(image.size[1] * ratio)
+        display_image = image.resize((canvas_width, canvas_height))
+    else:
+        canvas_width, canvas_height = image.size
+        display_image = image
+    
+    # Drawing tools
+    st.subheader("🖌️ Drawing Tools")
+    
+    col_brush, col_mode = st.columns(2)
+    
+    with col_brush:
+        brush_size = st.slider("Brush size:", 5, 50, 20, help="Size of the brush for painting")
         
-        # Pro tips
-        with st.expander("🎯 Pro Tips for Better Results"):
-            st.write("**🎨 Inpainting Tips:**")
-            st.write("- Be specific in your descriptions")
-            st.write("- Consider lighting and style consistency")
-            st.write("- Choose mask areas that make sense contextually")
-            st.write("")
-            st.write("**🖼️ Outpainting Tips:**")
-            st.write("- Describe continuation that matches the existing scene")
-            st.write("- Start with smaller extensions (32-64px) for better quality")
-            st.write("- Use 'all directions' for dramatic scene expansion")
+    with col_mode:
+        drawing_mode = st.selectbox(
+            "Drawing mode:",
+            ["freedraw", "line", "rect", "circle"],
+            index=0,
+            help="Choose how to draw the mask"
+        )
+    
+    # Canvas for drawing mask
+    st.write("**🎯 Paint the areas you want to edit:**")
+    
+    canvas_result = st_canvas(
+        fill_color="rgba(255, 255, 255, 0.8)",  # Semi-transparent white
+        stroke_width=brush_size,
+        stroke_color="#FF0000",  # Red brush
+        background_color="#000000",  # Black background
+        background_image=display_image,
+        update_streamlit=True,
+        height=canvas_height,
+        width=canvas_width,
+        drawing_mode=drawing_mode,
+        point_display_radius=0,
+        key="inpaint_canvas",
+    )
+    
+    # Clear canvas button
+    if st.button("🗑️ Clear Mask", help="Clear all painted areas"):
+        st.rerun()
+    
+    # Inpainting prompt
+    st.subheader("📝 What to Generate")
+    
+    # Quick prompt suggestions
+    st.write("**💡 Quick Ideas:**")
+    prompt_suggestions = [
+        "beautiful flowers", "blue sky with clouds", "modern building", 
+        "person smiling", "green grass", "ocean waves", "mountain landscape"
+    ]
+    
+    prompt_cols = st.columns(4)
+    selected_suggestion = None
+    
+    for i, suggestion in enumerate(prompt_suggestions):
+        with prompt_cols[i % 4]:
+            if st.button(f"💡 {suggestion}", key=f"suggestion_{i}"):
+                selected_suggestion = suggestion
+    
+    # Main prompt input
+    inpaint_prompt = st.text_area(
+        "Describe what should appear in the painted areas:",
+        value=selected_suggestion or "",
+        placeholder="a beautiful sunset, a person wearing a blue shirt, flowers blooming, modern architecture...",
+        help="Be specific about what you want to generate in the painted areas",
+        height=80
+    )
+    
+    # Inpaint button
+    if st.button("🎨 Apply Inpainting", type="primary", use_container_width=True):
+        if canvas_result.image_data is not None and inpaint_prompt.strip():
+            # Extract mask from canvas
+            mask_array = canvas_result.image_data[:, :, 3]  # Alpha channel
+            
+            # Check if mask has any painted areas
+            if np.any(mask_array > 0):
+                # Convert to PIL mask
+                mask_pil = Image.fromarray(mask_array, mode='L')
+                
+                # Resize mask back to original image size
+                mask_resized = mask_pil.resize(image.size, Image.NEAREST)
+                
+                # Show mask preview
+                st.write("**🎯 Mask Preview:**")
+                mask_preview = Image.new('RGBA', image.size, (0, 0, 0, 0))
+                mask_preview.paste((255, 0, 0, 128), mask=mask_resized)
+                preview_combined = Image.alpha_composite(
+                    image.convert('RGBA'),
+                    mask_preview
+                )
+                st.image(preview_combined, caption="Red areas will be inpainted", width=400)
+                
+                with st.spinner("🎨 Applying inpainting..."):
+                    result = inpaint_image(api_key, image, mask_resized, inpaint_prompt)
+                    
+                    if result:
+                        with col2:
+                            show_result(result, f"Inpainted: {inpaint_prompt[:30]}...", "inpainted.png", col2)
+            else:
+                st.warning("⚠️ Please paint some areas on the image first!")
+        elif not inpaint_prompt.strip():
+            st.warning("⚠️ Please describe what should appear in the painted areas!")
+        else:
+            st.warning("⚠️ Please paint some areas on the image first!")
+
+def show_outpainting(api_key, image):
+    """Show outpainting interface"""
+    st.subheader("🖼️ Outpainting - Extend Image")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.write("**📷 Original Image**")
+        st.image(image, caption=f"Size: {image.size[0]}x{image.size[1]}")
+    
+    # Outpainting controls
+    st.subheader("⚙️ Extension Settings")
+    
+    col_dir, col_size = st.columns(2)
+    
+    with col_dir:
+        direction = st.selectbox(
+            "Extend direction:",
+            ["up", "down", "left", "right", "all"],
+            format_func=lambda x: {
+                "up": "⬆️ Upward",
+                "down": "⬇️ Downward", 
+                "left": "⬅️ Leftward",
+                "right": "➡️ Rightward",
+                "all": "🔄 All Directions"
+            }[x]
+        )
+    
+    with col_size:
+        extension_size = st.selectbox(
+            "Extension size:",
+            [32, 64, 96, 128, 160],
+            format_func=lambda x: f"{x} pixels",
+            index=1  # Default to 64
+        )
+    
+    # Extension prompt with suggestions
+    st.write("**💡 Extension Ideas:**")
+    extension_suggestions = [
+        "continue the landscape", "more ocean waves", "extend the sky", 
+        "more forest trees", "continue the building", "expand the scene"
+    ]
+    
+    ext_cols = st.columns(3)
+    selected_ext_suggestion = None
+    
+    for i, suggestion in enumerate(extension_suggestions):
+        with ext_cols[i % 3]:
+            if st.button(f"💡 {suggestion}", key=f"ext_suggestion_{i}"):
+                selected_ext_suggestion = suggestion
+    
+    extension_prompt = st.text_area(
+        "What should appear in the extended area:",
+        value=selected_ext_suggestion or "",
+        placeholder="continue the landscape, more ocean, forest continuation, sky with clouds...",
+        help="Describe what should be generated in the new expanded areas"
+    )
+    
+    if st.button("🖼️ Extend Image", type="primary", use_container_width=True):
+        if extension_prompt.strip():
+            with st.spinner("🖼️ Extending image..."):
+                result = outpaint_image(api_key, image, extension_prompt, direction, extension_size)
+                if result:
+                    # Show size comparison
+                    original_size = f"{image.size[0]}×{image.size[1]}"
+                    new_size = f"{result.size[0]}×{result.size[1]}"
+                    show_result(result, f"Extended from {original_size} to {new_size}", "outpainted.png", col2)
+        else:
+            st.warning("Please describe what should appear in the extended area.")
 
 def show_result(result_image, caption, filename, column):
     """Helper function to display results"""
@@ -357,3 +365,8 @@ def show_result(result_image, caption, filename, column):
             mime="image/png",
             use_container_width=True
         )
+        
+        # Show comparison metrics
+        if hasattr(result_image, 'size'):
+            pixels = result_image.size[0] * result_image.size[1]
+            st.caption(f"Result: {result_image.size[0]}×{result_image.size[1]} ({pixels:,} pixels)")
