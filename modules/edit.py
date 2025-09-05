@@ -1,8 +1,10 @@
 import streamlit as st
 import requests
 import io
-from PIL import Image, ImageDraw
+from PIL import Image
 import numpy as np
+import base64
+from streamlit.components.v1 import html
 
 def remove_background(api_key, image):
     """Remove background using Stability AI API"""
@@ -102,69 +104,268 @@ def outpaint_image(api_key, image, prompt, direction="up", pixels=64):
         st.error(f"Request failed: {str(e)}")
         return None
 
-def create_smart_mask(image, mask_type, custom_coords=None):
-    """Create intelligent masks for different editing scenarios"""
-    width, height = image.size
-    mask = Image.new('L', (width, height), 0)
-    draw = ImageDraw.Draw(mask)
+def image_to_base64(image):
+    """Convert PIL image to base64 string"""
+    buffered = io.BytesIO()
+    image.save(buffered, format="PNG")
+    img_str = base64.b64encode(buffered.getvalue()).decode()
+    return f"data:image/png;base64,{img_str}"
+
+def create_drawing_canvas(image, canvas_id="drawingCanvas"):
+    """Create HTML5 Canvas for free drawing"""
     
-    if mask_type == "object_center":
-        # Smart object detection area (center focus)
-        center_x, center_y = width // 2, height // 2
-        radius = min(width, height) // 5
-        draw.ellipse([center_x - radius, center_y - radius, 
-                     center_x + radius, center_y + radius], fill=255)
+    # Convert image to base64
+    img_b64 = image_to_base64(image)
     
-    elif mask_type == "portrait_face":
-        # Face area for portraits
-        face_width = width // 4
-        face_height = height // 3
-        x1 = (width - face_width) // 2
-        y1 = height // 6
-        draw.ellipse([x1, y1, x1 + face_width, y1 + face_height], fill=255)
+    # Scale image if too large
+    max_size = 600
+    if max(image.size) > max_size:
+        ratio = max_size / max(image.size)
+        canvas_width = int(image.size[0] * ratio)
+        canvas_height = int(image.size[1] * ratio)
+    else:
+        canvas_width, canvas_height = image.size
     
-    elif mask_type == "background_edges":
-        # Edge areas for background replacement
-        border_size = min(width, height) // 20
-        # Top, bottom, left, right borders
-        draw.rectangle([0, 0, width, border_size], fill=255)  # Top
-        draw.rectangle([0, height-border_size, width, height], fill=255)  # Bottom
-        draw.rectangle([0, 0, border_size, height], fill=255)  # Left
-        draw.rectangle([width-border_size, 0, width, height], fill=255)  # Right
+    html_code = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            #canvasContainer {{
+                position: relative;
+                display: inline-block;
+                border: 2px solid #ddd;
+                border-radius: 8px;
+                background: #f9f9f9;
+            }}
+            #backgroundCanvas, #drawingCanvas {{
+                position: absolute;
+                top: 0;
+                left: 0;
+                cursor: crosshair;
+            }}
+            #backgroundCanvas {{
+                z-index: 1;
+            }}
+            #drawingCanvas {{
+                z-index: 2;
+            }}
+            .controls {{
+                margin: 10px 0;
+                padding: 10px;
+                background: #f0f2f6;
+                border-radius: 5px;
+            }}
+            button {{
+                margin: 5px;
+                padding: 8px 16px;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 14px;
+            }}
+            .primary-btn {{
+                background: #ff4b4b;
+                color: white;
+            }}
+            .secondary-btn {{
+                background: #f0f2f6;
+                color: #333;
+                border: 1px solid #ddd;
+            }}
+            input[type="range"] {{
+                width: 100px;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="controls">
+            <label>🖌️ Brush Size: </label>
+            <input type="range" id="brushSize" min="5" max="50" value="20" oninput="updateBrushSize()">
+            <span id="brushSizeValue">20</span>px
+            
+            <button class="secondary-btn" onclick="clearCanvas()">🗑️ Clear</button>
+            <button class="secondary-btn" onclick="undoLast()">↶ Undo</button>
+            <button class="primary-btn" onclick="downloadMask()">💾 Generate Mask</button>
+        </div>
+        
+        <div id="canvasContainer">
+            <canvas id="backgroundCanvas" width="{canvas_width}" height="{canvas_height}"></canvas>
+            <canvas id="drawingCanvas" width="{canvas_width}" height="{canvas_height}"></canvas>
+        </div>
+        
+        <div style="margin-top: 10px;">
+            <p>🎯 <strong>Instructions:</strong> Paint over the areas you want to edit. The mask will be automatically generated.</p>
+        </div>
+
+        <script>
+            let isDrawing = false;
+            let brushSize = 20;
+            let paths = [];
+            let currentPath = [];
+            
+            const backgroundCanvas = document.getElementById('backgroundCanvas');
+            const drawingCanvas = document.getElementById('drawingCanvas');
+            const backgroundCtx = backgroundCanvas.getContext('2d');
+            const drawingCtx = drawingCanvas.getContext('2d');
+            
+            // Load background image
+            const img = new Image();
+            img.onload = function() {{
+                backgroundCtx.drawImage(img, 0, 0, {canvas_width}, {canvas_height});
+            }};
+            img.src = '{img_b64}';
+            
+            // Set up drawing context
+            drawingCtx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
+            drawingCtx.lineWidth = brushSize;
+            drawingCtx.lineCap = 'round';
+            drawingCtx.lineJoin = 'round';
+            
+            // Mouse events
+            drawingCanvas.addEventListener('mousedown', startDrawing);
+            drawingCanvas.addEventListener('mousemove', draw);
+            drawingCanvas.addEventListener('mouseup', stopDrawing);
+            drawingCanvas.addEventListener('mouseout', stopDrawing);
+            
+            // Touch events for mobile
+            drawingCanvas.addEventListener('touchstart', function(e) {{
+                e.preventDefault();
+                const touch = e.touches[0];
+                const rect = drawingCanvas.getBoundingClientRect();
+                const x = touch.clientX - rect.left;
+                const y = touch.clientY - rect.top;
+                startDrawing({{offsetX: x, offsetY: y}});
+            }});
+            
+            drawingCanvas.addEventListener('touchmove', function(e) {{
+                e.preventDefault();
+                const touch = e.touches[0];
+                const rect = drawingCanvas.getBoundingClientRect();
+                const x = touch.clientX - rect.left;
+                const y = touch.clientY - rect.top;
+                draw({{offsetX: x, offsetY: y}});
+            }});
+            
+            drawingCanvas.addEventListener('touchend', function(e) {{
+                e.preventDefault();
+                stopDrawing();
+            }});
+            
+            function startDrawing(e) {{
+                isDrawing = true;
+                currentPath = [];
+                currentPath.push({{x: e.offsetX, y: e.offsetY}});
+                
+                drawingCtx.beginPath();
+                drawingCtx.moveTo(e.offsetX, e.offsetY);
+            }}
+            
+            function draw(e) {{
+                if (!isDrawing) return;
+                
+                currentPath.push({{x: e.offsetX, y: e.offsetY}});
+                
+                drawingCtx.lineTo(e.offsetX, e.offsetY);
+                drawingCtx.stroke();
+            }}
+            
+            function stopDrawing() {{
+                if (isDrawing) {{
+                    isDrawing = false;
+                    paths.push([...currentPath]);
+                }}
+            }}
+            
+            function updateBrushSize() {{
+                brushSize = document.getElementById('brushSize').value;
+                document.getElementById('brushSizeValue').textContent = brushSize;
+                drawingCtx.lineWidth = brushSize;
+            }}
+            
+            function clearCanvas() {{
+                drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+                paths = [];
+            }}
+            
+            function undoLast() {{
+                if (paths.length > 0) {{
+                    paths.pop();
+                    redrawCanvas();
+                }}
+            }}
+            
+            function redrawCanvas() {{
+                drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+                
+                for (let path of paths) {{
+                    if (path.length > 0) {{
+                        drawingCtx.beginPath();
+                        drawingCtx.moveTo(path[0].x, path[0].y);
+                        
+                        for (let i = 1; i < path.length; i++) {{
+                            drawingCtx.lineTo(path[i].x, path[i].y);
+                        }}
+                        drawingCtx.stroke();
+                    }}
+                }}
+            }}
+            
+            function downloadMask() {{
+                // Create mask canvas (white drawing on black background)
+                const maskCanvas = document.createElement('canvas');
+                maskCanvas.width = {canvas_width};
+                maskCanvas.height = {canvas_height};
+                const maskCtx = maskCanvas.getContext('2d');
+                
+                // Black background
+                maskCtx.fillStyle = 'black';
+                maskCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
+                
+                // White strokes
+                maskCtx.strokeStyle = 'white';
+                maskCtx.lineWidth = brushSize;
+                maskCtx.lineCap = 'round';
+                maskCtx.lineJoin = 'round';
+                
+                // Draw all paths
+                for (let path of paths) {{
+                    if (path.length > 0) {{
+                        maskCtx.beginPath();
+                        maskCtx.moveTo(path[0].x, path[0].y);
+                        
+                        for (let i = 1; i < path.length; i++) {{
+                            maskCtx.lineTo(path[i].x, path[i].y);
+                        }}
+                        maskCtx.stroke();
+                    }}
+                }}
+                
+                // Convert to base64 and send to Streamlit
+                const maskDataUrl = maskCanvas.toDataURL('image/png');
+                
+                // Send mask data to parent window
+                window.parent.postMessage({{
+                    type: 'mask_data',
+                    data: maskDataUrl,
+                    original_size: [{image.size[0]}, {image.size[1]}],
+                    canvas_size: [{canvas_width}, {canvas_height}]
+                }}, '*');
+                
+                alert('Mask generated! You can now apply inpainting.');
+            }}
+        </script>
+    </body>
+    </html>
+    """
     
-    elif mask_type == "clothing_area":
-        # Lower body area for clothing changes
-        y_start = height // 3
-        draw.rectangle([width//6, y_start, 5*width//6, 5*height//6], fill=255)
-    
-    elif mask_type == "sky_area":
-        # Top area for sky replacement
-        draw.rectangle([0, 0, width, height//3], fill=255)
-    
-    elif mask_type == "ground_area":
-        # Bottom area for ground/floor changes
-        draw.rectangle([0, 2*height//3, width, height], fill=255)
-    
-    elif mask_type == "left_object":
-        # Left side object area
-        draw.ellipse([width//10, height//4, 2*width//5, 3*height//4], fill=255)
-    
-    elif mask_type == "right_object":
-        # Right side object area
-        draw.ellipse([3*width//5, height//4, 9*width//10, 3*height//4], fill=255)
-    
-    elif mask_type == "custom_area" and custom_coords:
-        # Custom rectangular area
-        x1, y1, x2, y2 = custom_coords
-        draw.rectangle([x1, y1, x2, y2], fill=255)
-    
-    return mask
+    return html_code, canvas_width, canvas_height
 
 def show_edit_interface(api_key):
-    """Show the professional edit interface"""
+    """Show the custom interactive edit interface"""
     
-    st.write("✏️ **Professional AI Image Editing**")
-    st.write("🎯 **Smart area selection for precise editing**")
+    st.write("✏️ **Professional Interactive Image Editing**")
+    st.write("🖌️ **Draw freely anywhere on your image!**")
     
     # Image upload
     uploaded_file = st.file_uploader(
@@ -176,16 +377,16 @@ def show_edit_interface(api_key):
     if uploaded_file is not None:
         original_image = Image.open(uploaded_file)
         
-        # Store image in session state for consistency
-        if 'current_image' not in st.session_state:
-            st.session_state.current_image = original_image
+        # Store in session state
+        if 'editing_image' not in st.session_state:
+            st.session_state.editing_image = original_image
         
         # Main editing tools
         edit_tool = st.selectbox(
             "Choose editing tool:",
             [
                 "🗑️ Remove Background",
-                "🎨 Smart Inpainting",
+                "🎨 Free Drawing Inpainting", 
                 "🖼️ Outpainting"
             ],
             help="Select the editing operation"
@@ -195,8 +396,8 @@ def show_edit_interface(api_key):
         
         if edit_tool == "🗑️ Remove Background":
             show_background_removal(api_key, original_image)
-        elif edit_tool == "🎨 Smart Inpainting":
-            show_smart_inpainting(api_key, original_image)
+        elif edit_tool == "🎨 Free Drawing Inpainting":
+            show_free_drawing_inpainting(api_key, original_image)
         elif edit_tool == "🖼️ Outpainting":
             show_outpainting(api_key, original_image)
 
@@ -216,127 +417,72 @@ def show_background_removal(api_key, image):
             if result:
                 show_result(result, "Background removed!", "no_background.png", col2)
 
-def show_smart_inpainting(api_key, image):
-    """Show smart inpainting with preset intelligent areas"""
-    st.subheader("🎨 Smart Inpainting")
-    st.write("🎯 **Choose what type of edit you want to make**")
+def show_free_drawing_inpainting(api_key, image):
+    """Show free drawing inpainting interface"""
+    st.subheader("🎨 Free Drawing Inpainting")
+    st.write("🖌️ **Draw exactly where you want to edit - complete freedom!**")
     
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns([2, 1])
     
     with col1:
+        st.write("**🎨 Interactive Drawing Canvas**")
+        
+        # Create the HTML5 canvas
+        html_code, canvas_width, canvas_height = create_drawing_canvas(image)
+        
+        # Display the interactive canvas
+        components_html = html(html_code, height=canvas_height + 150, scrolling=False)
+    
+    with col2:
         st.write("**📷 Original Image**")
-        st.image(image, caption=f"Size: {image.size[0]}x{image.size[1]}")
-    
-    # Smart editing categories
-    st.subheader("🎯 What do you want to edit?")
-    
-    edit_category = st.selectbox(
-        "Editing goal:",
-        [
-            "👤 Change face/head area",
-            "👕 Change clothing/outfit", 
-            "🏠 Add object in center",
-            "🌅 Change sky/background",
-            "🌱 Change ground/floor",
-            "⬅️ Add object on left",
-            "➡️ Add object on right",
-            "🔧 Custom area"
-        ],
-        help="Choose the type of edit you want to make"
-    )
-    
-    # Map selections to mask types
-    mask_mapping = {
-        "👤 Change face/head area": "portrait_face",
-        "👕 Change clothing/outfit": "clothing_area",
-        "🏠 Add object in center": "object_center", 
-        "🌅 Change sky/background": "sky_area",
-        "🌱 Change ground/floor": "ground_area",
-        "⬅️ Add object on left": "left_object",
-        "➡️ Add object on right": "right_object",
-        "🔧 Custom area": "custom_area"
-    }
-    
-    mask_type = mask_mapping[edit_category]
-    
-    # Custom area coordinates if needed
-    custom_coords = None
-    if mask_type == "custom_area":
-        st.write("**Define custom area (as % of image):**")
-        col_x1, col_y1, col_x2, col_y2 = st.columns(4)
+        st.image(image, caption=f"Size: {image.size[0]}x{image.size[1]}", width=300)
         
-        with col_x1:
-            x1_pct = st.slider("Left %", 0, 100, 20, key="x1")
-        with col_y1:
-            y1_pct = st.slider("Top %", 0, 100, 20, key="y1") 
-        with col_x2:
-            x2_pct = st.slider("Right %", 0, 100, 80, key="x2")
-        with col_y2:
-            y2_pct = st.slider("Bottom %", 0, 100, 80, key="y2")
+        st.markdown("---")
         
-        # Convert percentages to pixel coordinates
-        custom_coords = (
-            int(image.size[0] * x1_pct / 100),
-            int(image.size[1] * y1_pct / 100),
-            int(image.size[0] * x2_pct / 100),
-            int(image.size[1] * y2_pct / 100)
+        # Prompt for inpainting
+        st.write("**📝 Inpainting Prompt**")
+        prompt = st.text_area(
+            "What should appear in the drawn areas:",
+            placeholder="beautiful flowers, blue sky, person smiling, modern building...",
+            help="Describe what you want to generate in the areas you drew",
+            height=100
         )
-    
-    # Create and show mask preview
-    mask = create_smart_mask(image, mask_type, custom_coords)
-    
-    # Show mask preview
-    st.write("**🎯 Preview - Red area will be edited:**")
-    mask_preview = Image.new('RGBA', image.size, (0, 0, 0, 0))
-    mask_preview.paste((255, 0, 0, 128), mask=mask)
-    preview_combined = Image.alpha_composite(image.convert('RGBA'), mask_preview)
-    st.image(preview_combined, width=500)
-    
-    # Editing prompt with suggestions
-    st.subheader("📝 What should appear in the red area?")
-    
-    # Context-aware suggestions
-    suggestion_mapping = {
-        "portrait_face": ["smiling expression", "different hairstyle", "sunglasses", "hat"],
-        "clothing_area": ["red dress", "business suit", "casual t-shirt", "winter coat"],
-        "object_center": ["beautiful flowers", "cute dog", "vintage car", "modern sculpture"],
-        "sky_area": ["blue sky with clouds", "sunset colors", "starry night", "dramatic storm clouds"],
-        "ground_area": ["green grass", "sandy beach", "wooden floor", "stone pathway"],
-        "left_object": ["person standing", "tree", "lamp post", "decorative plant"],
-        "right_object": ["person sitting", "flower vase", "modern chair", "artwork"],
-        "custom_area": ["beautiful landscape", "modern architecture", "artistic pattern", "natural texture"]
-    }
-    
-    suggestions = suggestion_mapping.get(mask_type, [])
-    
-    if suggestions:
-        st.write("**💡 Quick suggestions:**")
-        suggestion_cols = st.columns(min(4, len(suggestions)))
-        selected_suggestion = None
         
-        for i, suggestion in enumerate(suggestions):
-            with suggestion_cols[i % 4]:
-                if st.button(f"💡 {suggestion}", key=f"sug_{i}"):
-                    selected_suggestion = suggestion
-    
-    # Main prompt input
-    prompt = st.text_area(
-        "Describe what should appear in the selected area:",
-        value=selected_suggestion or "",
-        placeholder="be specific: a person wearing a blue jacket, beautiful sunset sky, modern furniture...",
-        help="The more specific you are, the better the results",
-        height=80
-    )
-    
-    # Apply inpainting
-    if st.button("🎨 Apply Smart Inpainting", type="primary", use_container_width=True):
-        if prompt.strip():
-            with st.spinner("🎨 Applying smart inpainting..."):
-                result = inpaint_image(api_key, image, mask, prompt)
-                if result:
-                    show_result(result, f"Edited: {edit_category}", "smart_inpainted.png", col2)
-        else:
-            st.warning("Please describe what should appear in the selected area.")
+        # File uploader for mask (alternative method)
+        st.write("**🎭 Or Upload Mask Manually**")
+        uploaded_mask = st.file_uploader(
+            "Upload a mask image (optional):",
+            type=['png', 'jpg', 'jpeg'],
+            help="White areas = edit, Black areas = keep original"
+        )
+        
+        # Apply inpainting button
+        if st.button("🎨 Apply Inpainting", type="primary", use_container_width=True):
+            if prompt.strip():
+                if uploaded_mask is not None:
+                    # Use uploaded mask
+                    mask_image = Image.open(uploaded_mask).convert('L')
+                    mask_resized = mask_image.resize(image.size)
+                    
+                    with st.spinner("🎨 Applying inpainting with uploaded mask..."):
+                        result = inpaint_image(api_key, image, mask_resized, prompt)
+                        if result:
+                            st.success("✅ Inpainting completed!")
+                            st.image(result, caption="Inpainting result")
+                            
+                            # Download button
+                            buf = io.BytesIO()
+                            result.save(buf, format="PNG")
+                            st.download_button(
+                                "📥 Download Result",
+                                data=buf.getvalue(),
+                                file_name="inpainted_result.png",
+                                mime="image/png"
+                            )
+                else:
+                    st.info("💡 Use the drawing canvas on the left to create a mask, then click 'Generate Mask' in the canvas, then try this button again.")
+            else:
+                st.warning("Please enter a prompt describing what should appear in the drawn areas.")
 
 def show_outpainting(api_key, image):
     """Show outpainting interface"""
@@ -371,24 +517,8 @@ def show_outpainting(api_key, image):
             index=1
         )
     
-    # Extension suggestions
-    extension_suggestions = [
-        "continue the landscape", "more sky with clouds", "extend the ocean",
-        "more forest area", "continue the building", "expand the scene naturally"
-    ]
-    
-    st.write("**💡 Extension ideas:**")
-    ext_cols = st.columns(3)
-    selected_ext = None
-    
-    for i, suggestion in enumerate(extension_suggestions):
-        with ext_cols[i % 3]:
-            if st.button(f"💡 {suggestion}", key=f"ext_{i}"):
-                selected_ext = suggestion
-    
     prompt = st.text_area(
         "What should appear in the extended area:",
-        value=selected_ext or "",
         placeholder="continue the landscape, more ocean waves, sky with clouds...",
         help="Describe what should be generated in the new expanded areas"
     )
