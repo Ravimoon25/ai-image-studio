@@ -31,13 +31,39 @@ def upscale_image(api_key, image, upscale_type="creative", prompt=""):
         response = requests.post(url, headers=headers, files=files)
         
         if response.status_code == 200:
-            return Image.open(io.BytesIO(response.content))
+            # Check if response is actually an image
+            content_type = response.headers.get('content-type', '')
+            
+            if 'image' in content_type:
+                try:
+                    return Image.open(io.BytesIO(response.content))
+                except Exception as img_error:
+                    st.error(f"Failed to process image: {str(img_error)}")
+                    st.write(f"Content type: {content_type}")
+                    st.write(f"Response size: {len(response.content)} bytes")
+                    return None
+            else:
+                # Response might be JSON with error
+                try:
+                    error_data = response.json()
+                    st.error(f"API returned error: {error_data}")
+                except:
+                    st.error(f"Unexpected response format. Content type: {content_type}")
+                    st.write(f"Response content: {response.text[:200]}...")
+                return None
         else:
-            st.error(f"Error: {response.status_code} - {response.text}")
+            try:
+                error_data = response.json()
+                st.error(f"Error {response.status_code}: {error_data}")
+            except:
+                st.error(f"Error {response.status_code}: {response.text}")
             return None
             
-    except Exception as e:
+    except requests.exceptions.RequestException as e:
         st.error(f"Request failed: {str(e)}")
+        return None
+    except Exception as e:
+        st.error(f"Unexpected error: {str(e)}")
         return None
 
 def show_upscale_interface(api_key):
@@ -68,22 +94,28 @@ def show_upscale_interface(api_key):
         with col_type:
             upscale_type = st.selectbox(
                 "Upscale type:",
-                ["Creative", "Conservative"],
-                help="Creative: Better for artistic images\nConservative: Better for photos"
+                ["Conservative", "Creative"],  # Put Conservative first since it works
+                help="Conservative: Better for photos (more reliable)\nCreative: Better for artistic images",
+                key="upscale_type_select"
             )
         
         with col_prompt:
             prompt = st.text_input(
                 "Enhancement prompt (optional):",
                 placeholder="high quality, detailed, sharp",
-                help="Describe how you want the image enhanced"
+                help="Describe how you want the image enhanced",
+                key="upscale_prompt_input"
             )
         
         upscale_key = upscale_type.lower()
         
+        # Warning for Creative mode
+        if upscale_type == "Creative":
+            st.warning("⚠️ Creative upscaling is experimental and may occasionally fail. Try Conservative if you encounter issues.")
+        
         # Upscale button
         if st.button("📈 Upscale Image", type="primary", use_container_width=True):
-            with st.spinner("🚀 Upscaling your image... This may take a moment."):
+            with st.spinner(f"🚀 {upscale_type} upscaling in progress... This may take a moment."):
                 upscaled_image = upscale_image(api_key, original_image, upscale_key, prompt)
                 
                 if upscaled_image:
@@ -120,3 +152,8 @@ def show_upscale_interface(api_key):
                                 mime="image/png",
                                 use_container_width=True
                             )
+                else:
+                    st.error("Failed to upscale image. You can try:")
+                    st.write("- Using Conservative mode instead")
+                    st.write("- Trying a different image")
+                    st.write("- Simplifying the enhancement prompt")
