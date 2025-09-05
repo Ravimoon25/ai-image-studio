@@ -67,7 +67,8 @@ elif page == "📈 Upscale":
 
 elif page == "✏️ Edit":
     st.header("✏️ Image Editing")
-    st.write("Editing features coming soon...")
+    from modules.edit import show_edit_interface
+    show_edit_interface(api_key)
 
 elif page == "🎛️ Control":
     st.header("🎛️ Advanced Control")
