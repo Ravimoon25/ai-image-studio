@@ -7,7 +7,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Safe API key handling with better error handling
+# Safe API key handling
 try:
     api_key = st.secrets["STABILITY_API_KEY"]
     if not api_key:
@@ -24,23 +24,15 @@ except Exception as e:
     st.error(f"Error loading API key: {str(e)}")
     st.stop()
 
-# Rest of your app code stays the same...
-# Sidebar navigation
+# Sidebar navigation - ADD UNIQUE KEY HERE
 st.sidebar.title("🎨 AI Image Studio")
 page = st.sidebar.selectbox(
     "Choose a feature:",
-    ["🏠 Home", "✨ Generate", "📈 Upscale", "✏️ Edit", "🎛️ Control"]
+    ["🏠 Home", "✨ Generate", "📈 Upscale", "✏️ Edit", "🎛️ Control"],
+    key="main_navigation"  # ADD THIS LINE
 )
 
-
-# Sidebar navigation
-st.sidebar.title("🎨 AI Image Studio")
-page = st.sidebar.selectbox(
-    "Choose a feature:",
-    ["🏠 Home", "✨ Generate", "📈 Upscale", "✏️ Edit", "🎛️ Control"]
-)
-
-# Main content based on selected page
+# Rest of your code stays exactly the same...
 if page == "🏠 Home":
     st.title("🎨 AI Image Studio")
     st.write("Your personal AI-powered image creation and editing suite")
@@ -75,10 +67,8 @@ elif page == "📈 Upscale":
 
 elif page == "✏️ Edit":
     st.header("✏️ Image Editing")
-    st.write("Edit images with masking tools")
-    # We'll build this next
+    st.write("Editing features coming soon...")
 
 elif page == "🎛️ Control":
     st.header("🎛️ Advanced Control")
-    st.write("Precise image control")
-    # We'll build this next
+    st.write("Control features coming soon...")
