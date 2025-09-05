@@ -46,9 +46,9 @@ elif page == "✨ Generate":
     show_generation_interface(api_key)
 
 elif page == "📈 Upscale":
-    st.header("📈 Image Upscaling")  
-    st.write("Enhance your images")
-    # We'll build this next
+    st.header("📈 Image Upscaling")
+    from modules.upscale import show_upscale_interface
+    show_upscale_interface(api_key)
 
 elif page == "✏️ Edit":
     st.header("✏️ Image Editing")
