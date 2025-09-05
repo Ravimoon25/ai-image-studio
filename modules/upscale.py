@@ -1,10 +1,9 @@
-
 import streamlit as st
 import requests
 import io
 from PIL import Image
 
-def upscale_image(api_key, image, upscale_type="creative"):
+def upscale_image(api_key, image, upscale_type="creative", prompt=""):
     """Upscale image using Stability AI API"""
     
     if upscale_type == "creative":
@@ -24,6 +23,7 @@ def upscale_image(api_key, image, upscale_type="creative"):
     
     files = {
         "image": ("image.png", img_byte_arr, "image/png"),
+        "prompt": (None, prompt if prompt else "enhance image quality"),
         "output_format": (None, "png")
     }
     
@@ -43,7 +43,7 @@ def upscale_image(api_key, image, upscale_type="creative"):
 def show_upscale_interface(api_key):
     """Show the upscale interface"""
     
-    st.subheader("Upload Image")
+    st.subheader("📤 Upload Image")
     uploaded_file = st.file_uploader(
         "Choose an image to upscale:",
         type=['png', 'jpg', 'jpeg'],
@@ -57,42 +57,66 @@ def show_upscale_interface(api_key):
         col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("Original Image")
+            st.subheader("📷 Original Image")
             st.image(original_image, caption=f"Size: {original_image.size[0]}x{original_image.size[1]}")
         
         # Upscale options
-        st.subheader("Upscale Settings")
-        upscale_type = st.selectbox(
-            "Choose upscale type:",
-            ["Creative", "Conservative"],
-            help="Creative: Better for artistic images, Conservative: Better for photos"
-        )
+        st.subheader("⚙️ Upscale Settings")
+        
+        col_type, col_prompt = st.columns([1, 2])
+        
+        with col_type:
+            upscale_type = st.selectbox(
+                "Upscale type:",
+                ["Creative", "Conservative"],
+                help="Creative: Better for artistic images\nConservative: Better for photos"
+            )
+        
+        with col_prompt:
+            prompt = st.text_input(
+                "Enhancement prompt (optional):",
+                placeholder="high quality, detailed, sharp",
+                help="Describe how you want the image enhanced"
+            )
         
         upscale_key = upscale_type.lower()
         
         # Upscale button
-        if st.button("📈 Upscale Image", type="primary"):
-            with st.spinner("Upscaling your image... This may take a moment."):
-                upscaled_image = upscale_image(api_key, original_image, upscale_key)
+        if st.button("📈 Upscale Image", type="primary", use_container_width=True):
+            with st.spinner("🚀 Upscaling your image... This may take a moment."):
+                upscaled_image = upscale_image(api_key, original_image, upscale_key, prompt)
                 
                 if upscaled_image:
                     with col2:
-                        st.subheader("Upscaled Image")
+                        st.subheader("✨ Upscaled Image")
                         st.image(upscaled_image, caption=f"Size: {upscaled_image.size[0]}x{upscaled_image.size[1]}")
-                        
-                        # Download button
-                        buf = io.BytesIO()
-                        upscaled_image.save(buf, format="PNG")
-                        st.download_button(
-                            label="📥 Download Upscaled Image",
-                            data=buf.getvalue(),
-                            file_name=f"upscaled_{upscale_type.lower()}.png",
-                            mime="image/png"
-                        )
                         
                         # Show improvement stats
                         original_pixels = original_image.size[0] * original_image.size[1]
                         upscaled_pixels = upscaled_image.size[0] * upscaled_image.size[1]
                         improvement = upscaled_pixels / original_pixels
                         
-                        st.success(f"✨ Image enhanced by {improvement:.1f}x pixels!")
+                        st.success(f"🎉 Image enhanced by {improvement:.1f}x pixels!")
+                        
+                        # Download section
+                        st.markdown("---")
+                        
+                        download_col1, download_col2 = st.columns([2, 1])
+                        
+                        with download_col1:
+                            filename = st.text_input(
+                                "Filename:", 
+                                value=f"upscaled_{upscale_type.lower()}",
+                                key="upscale_filename"
+                            )
+                        
+                        with download_col2:
+                            buf = io.BytesIO()
+                            upscaled_image.save(buf, format="PNG")
+                            st.download_button(
+                                label="📥 Download",
+                                data=buf.getvalue(),
+                                file_name=f"{filename}.png",
+                                mime="image/png",
+                                use_container_width=True
+                            )
