@@ -1,5 +1,13 @@
 import streamlit as st
 
+# Temporary debug - add this at the top of app.py after imports
+try:
+    from streamlit_drawable_canvas import st_canvas
+    st.success("✅ streamlit-drawable-canvas imported successfully!")
+except ImportError as e:
+    st.error(f"❌ Failed to import streamlit-drawable-canvas: {str(e)}")
+except Exception as e:
+    st.error(f"❌ Other error importing canvas: {str(e)}")
 # Page config
 st.set_page_config(
     page_title="AI Image Studio",
